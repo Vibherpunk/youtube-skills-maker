@@ -12,10 +12,12 @@ __pycache__/
 env/
 venv/
 .venv/
+*.egg-info/
 
 # Data and caches
 data/
 !data/state.json
+cookies.txt
 
 # IDE
 .idea/

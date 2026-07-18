@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import re
 import subprocess
 import time
@@ -7,6 +8,41 @@ import http.cookiejar
 from pathlib import Path
 from requests import Session
 from youtube_transcript_api import YouTubeTranscriptApi
+
+
+class YouTubeBlockedError(Exception):
+    """Raised when YouTube is returning 429 / IP-blocking errors."""
+    pass
+
+
+# Sentinel video ID with a known public transcript — used to probe access.
+PROBE_VIDEO_ID = "dQw4w9WgXcQ"
+
+
+def is_ip_blocked(data_dir="data") -> bool:
+    """
+    Quick probe: tries to fetch a single well-known transcript.
+    Returns True if YouTube is blocking this IP, False if access is fine.
+    Skips the cache so the probe always hits the network.
+    """
+    try:
+        cache_dir = Path(data_dir) / "transcripts"
+        # Temporarily rename cached probe file so we force a network hit
+        probe_cache = cache_dir / f"{PROBE_VIDEO_ID}.json"
+        probe_bak = cache_dir / f"{PROBE_VIDEO_ID}.json.bak"
+        if probe_cache.exists():
+            probe_cache.rename(probe_bak)
+        try:
+            result = get_transcript(PROBE_VIDEO_ID, data_dir=data_dir)
+            return result is None
+        finally:
+            # Restore original cache so we don't re-download next time
+            if probe_bak.exists():
+                probe_bak.rename(probe_cache)
+    except YouTubeBlockedError:
+        return True
+    except Exception:
+        return True  # Assume blocked on any unexpected error
 
 
 def clean_srt(srt_content):
@@ -145,6 +181,10 @@ def get_transcript(video_id, data_dir="data", gemini_api_key=None):
         text = " ".join([t.get("text", "") if isinstance(t, dict) else getattr(t, "text", "") for t in transcript_list])
         method = "youtube_transcript_api"
     except Exception as e:
+        err_str = str(e)
+        # Detect YouTube IP block / rate-limit signals
+        if any(signal in err_str for signal in ["429", "Too Many Requests", "blocked", "could not retrieve"]):
+            raise YouTubeBlockedError(f"YouTube IP block detected on {video_id}: {e}")
         print(f"[{video_id}] youtube_transcript_api failed: {e}")
         
     # 2. Fallback: yt-dlp
@@ -172,11 +212,11 @@ def get_transcript(video_id, data_dir="data", gemini_api_key=None):
         except Exception as e:
             print(f"[{video_id}] Failed to cache transcript: {e}")
             
-        # Add a small delay after a successful live download to respect rate limits
-        time.sleep(5)
+        # Jittered delay after successful live download — looks more human
+        time.sleep(random.uniform(8, 15))
         return text
     else:
         print(f"[{video_id}] Failed to extract transcript using all available methods.")
-        # Sleep on failure too before retrying the next video
-        time.sleep(5)
+        # Short jittered sleep on failure before next attempt
+        time.sleep(random.uniform(3, 7))
         return None

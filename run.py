@@ -9,7 +9,7 @@ load_dotenv()
 
 from src.state import State
 from src.firestore_source import fetch_curated_videos
-from src.transcribe import get_transcript
+from src.transcribe import get_transcript, is_ip_blocked, YouTubeBlockedError
 from src.evaluator import evaluate_transcript
 from src.cluster import cluster_videos
 from src.dedup import check_deduplication
@@ -108,10 +108,15 @@ def main():
             continue
             
         # Get/Extract transcript
-        transcript = get_transcript(video_id, data_dir="data", gemini_api_key=gemini_api_key)
+        try:
+            transcript = get_transcript(video_id, data_dir="data", gemini_api_key=gemini_api_key)
+        except YouTubeBlockedError as e:
+            print(f"\n[Pipeline] ⚠️  YouTube IP block detected: {e}")
+            print(f"[Pipeline] Stopping batch early. Remaining videos will retry on the next run.")
+            break  # Stop the loop — don't mark remaining videos as failed
         
         if not transcript:
-            print(f"[Pipeline] Skip {video_id}: Transcript extraction failed.")
+            print(f"[Pipeline] Skip {video_id}: Transcript extraction failed (not a block — video may have no captions).")
             state.mark_video_processed(video_id, {
                 "title": title,
                 "status": "failed_no_transcript"

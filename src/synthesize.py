@@ -51,17 +51,20 @@ def _call_compatible_api_synth(system: str, user: str, api_key: str, api_base: s
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "response_format": {
+        "temperature": 0.2,
+        "max_tokens": 8192,
+    }
+    # Omit response_format if the model/proxy does not support structured JSON schema mode
+    if "deepseek-v4" not in model:
+        payload["response_format"] = {
             "type": "json_schema",
             "json_schema": {
                 "name": "SynthesizedSkill",
                 "strict": True,
                 "schema": SYNTH_SCHEMA,
             },
-        },
-        "temperature": 0.2,
-        "max_tokens": 8192,
-    }
+        }
+
     data = json.dumps(payload).encode()
     
     headers = {
@@ -85,7 +88,14 @@ def _call_compatible_api_synth(system: str, user: str, api_key: str, api_base: s
             with urllib.request.urlopen(req, timeout=300) as resp:
                 body = json.load(resp)
             content = body["choices"][0]["message"]["content"]
-            return json.loads(content)
+            
+            # Clean up markdown JSON wraps if present
+            content_clean = content.strip()
+            if content_clean.startswith("```"):
+                content_clean = re.sub(r"^```(?:json)?\n", "", content_clean)
+                content_clean = re.sub(r"\n```$", "", content_clean)
+                
+            return json.loads(content_clean)
         except urllib.error.HTTPError as e:
             body_text = e.read().decode(errors="replace")
             if e.code == 429:
@@ -254,7 +264,19 @@ Output as JSON matching the SynthesizedSkill schema."""
             refs = len(result.get("references", []))
             print(f"[Synthesizer] ✓ Synthesized '{name}' with {refs} reference(s).")
             return result
-        print("[Synthesizer] Primary API synthesis failed, trying Gemini fallback...")
+        print("[Synthesizer] Primary API synthesis failed, trying LiteLLM fallback...")
+
+    # --- Local LiteLLM / OpenCode Go Fallback ---
+    litellm_key = os.getenv("LITELLM_MASTER_KEY", "").strip()
+    print("[Synthesizer] Using LiteLLM fallback (deepseek-v4-pro)...")
+    result = _call_compatible_api_synth(system_instruction, user_prompt, litellm_key, "http://127.0.0.1:4000/v1", "deepseek-v4-pro")
+    if result:
+        result = _fix_reference_links(result)
+        name = result.get("name", topic_name)
+        refs = len(result.get("references", []))
+        print(f"[Synthesizer] ✓ LiteLLM synthesized '{name}' with {refs} reference(s).")
+        return result
+    print("[Synthesizer] LiteLLM fallback failed, trying Gemini fallback...")
 
     # --- Gemini fallback ---
     if api_key:
