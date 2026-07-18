@@ -1,3 +1,4 @@
+from __future__ import annotations
 import json
 import os
 import time
@@ -65,17 +66,20 @@ def _call_compatible_api(system: str, user: str, api_key: str, api_base: str, mo
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "response_format": {
+        "temperature": 0.1,
+        "max_tokens": 1024,
+    }
+    # Omit response_format if the model/proxy does not support structured JSON schema mode
+    if "deepseek-v4" not in model:
+        payload["response_format"] = {
             "type": "json_schema",
             "json_schema": {
                 "name": "EvaluationResult",
                 "strict": True,
                 "schema": EVAL_SCHEMA,
             },
-        },
-        "temperature": 0.1,
-        "max_tokens": 1024,
-    }
+        }
+
     data = json.dumps(payload).encode()
     
     headers = {
@@ -100,7 +104,15 @@ def _call_compatible_api(system: str, user: str, api_key: str, api_base: str, mo
                 body = json.load(resp)
 
             content = body["choices"][0]["message"]["content"]
-            parsed = json.loads(content)
+            
+            # Clean up markdown JSON wraps if present
+            import re
+            content_clean = content.strip()
+            if content_clean.startswith("```"):
+                content_clean = re.sub(r"^```(?:json)?\n", "", content_clean)
+                content_clean = re.sub(r"\n```$", "", content_clean)
+            
+            parsed = json.loads(content_clean)
 
             # Normalise types defensively
             return {
@@ -126,7 +138,9 @@ def _call_compatible_api(system: str, user: str, api_key: str, api_base: str, mo
                 print(f"[API] HTTP {e.code}: {body_text[:300]}")
                 return None
         except json.JSONDecodeError as e:
-            print(f"[API] JSON parse error: {e}")
+            # Safely capture content_clean in case exception happened before it was defined
+            raw_content = locals().get("content_clean", locals().get("content", "N/A"))
+            print(f"[API] JSON parse error: {e}. Raw content: {raw_content!r}")
             return None
         except Exception as e:
             print(f"[API] Unexpected error: {e}")
@@ -233,6 +247,17 @@ Transcript:
                 f"Potential={result['skill_potential']} Category={result['category']}"
             )
             return result
+
+    # --- Local LiteLLM / OpenCode Go Fallback ---
+    litellm_key = os.getenv("LITELLM_MASTER_KEY", "").strip()
+    print(f"[Evaluator] [{video_id}] → Local LiteLLM fallback (deepseek-v4-flash)")
+    result = _call_compatible_api(system, user_prompt, litellm_key, "http://127.0.0.1:4000/v1", "deepseek-v4-flash")
+    if result is not None:
+        print(
+            f"[Evaluator] [{video_id}] ✓ LiteLLM fallback succeeded: Teachable={result['is_teachable_skill']} "
+            f"Potential={result['skill_potential']} Category={result['category']}"
+        )
+        return result
 
     # --- Gemini fallback ---
     if api_key:
