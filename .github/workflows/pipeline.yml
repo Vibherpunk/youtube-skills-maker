@@ -36,6 +36,9 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; else echo "No requirements.txt found"; fi
 
       - name: Run skill generation pipeline (Python)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           . .venv/bin/activate
           # Adjust arguments as needed; default runs configured video list
