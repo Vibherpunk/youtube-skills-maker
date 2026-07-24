@@ -91,7 +91,7 @@ python run.py --no-push
 ```
 
 ### Run locally (full run)
-Downloads, synthesizes, packages, and pushes new skills directly to your `adamrmatar/ai-skills` repository on GitHub:
+Downloads, synthesizes, packages, and pushes new skills directly to your `Vibherpunk/ai-skills` repository on GitHub:
 ```bash
 python run.py
 ```

@@ -52,7 +52,7 @@ def main():
         print("[Pipeline] Error: GEMINI_API_KEY environment variable is not set. Please set it in .env.")
         sys.exit(1)
         
-    repo_slug = config.get("github", {}).get("repo", "adamrmatar/ai-skills")
+    repo_slug = config.get("github", {}).get("repo", "Vibherpunk/ai-skills")
     local_repo_path = config.get("github", {}).get("local_repo_path", "data/ai-skills")
     
     if args.dry_run:

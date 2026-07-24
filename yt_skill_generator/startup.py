@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from dotenv import set_key
+from dotenv import set_key, load_dotenv
 from rich.console import Console
 from rich.prompt import Prompt
 
@@ -10,9 +10,13 @@ console = Console()
 
 def verify_env():
     """Verify that required API keys are present and valid, prompting if not."""
-    env_path = Path(".env")
+    workspace_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    env_path = Path(workspace_root) / ".env"
+    
     if not env_path.exists():
         env_path.touch()
+
+    load_dotenv(dotenv_path=env_path)
 
     api_key = os.getenv("YOUTUBE_API_KEY")
     

@@ -14,7 +14,7 @@ pipeline:
   allow_solo_skills: true
 
 github:
-  repo: "adamrmatar/ai-skills"
+  repo: "Vibherpunk/ai-skills"
   branch: "main"
   skills_path: "skills/"
   commit_prefix: "feat(skills): "

@@ -146,7 +146,7 @@ def init_or_clone_repo(repo_slug, local_path):
             
     return Repo(local_path)
 
-def publish_skills_to_github(repo_slug="adamrmatar/ai-skills", local_repo_path="data/ai-skills"):
+def publish_skills_to_github(repo_slug="Vibherpunk/ai-skills", local_repo_path="data/ai-skills"):
     """
     Stages, commits, and pushes generated skills in the local_repo_path.
     """

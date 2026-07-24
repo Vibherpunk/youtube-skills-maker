@@ -118,9 +118,14 @@ def run_pipeline(config: dict) -> None:
                 progress.advance(main_task)
                 continue
 
+            import re
+            safe_title = re.sub(r'[^a-zA-Z0-9]', '-', title.lower())
+            safe_title = re.sub(r'-+', '-', safe_title).strip('-')
+            skill_name = safe_title[:50] if safe_title else f'skill_{vid}'
+
             # Build skill data structure expected by skill_builder
             skill_data = {
-                'name': eval_result.get('technique_description', f'skill_{vid}').replace(' ', '-').lower(),
+                'name': skill_name,
                 'description': eval_result.get('technique_description', ''),
                 'keywords': eval_result.get('keywords', []),
                 'difficulty': 'intermediate',
