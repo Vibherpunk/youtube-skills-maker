@@ -6900,6 +6900,28 @@
     "tKasWREsWBE": {
       "title": "Web design just got easier using the Kimi K2.5 Open AI Model",
       "status": "failed_no_transcript"
+    },
+    "ooSKV9c5h4Y": {
+      "title": "Build a Full Presentation in Minutes",
+      "status": "evaluated",
+      "is_teachable": true,
+      "skill_potential": 3,
+      "category": "automation",
+      "evaluation": {
+        "is_teachable_skill": true,
+        "technique_description": "The technique involves using the Minus AI platform to automatically generate a full presentation. An AI agent would need to access the Minus AI tool, input a specific topic or subject for the desired slide deck (e.g., \"create a professional slide deck about AI for beginners\"), and then initiate the generation process. The tool then produces the entire presentation, including slides, titles, structure, and flow, which the agent could then present for review or further refinement.",
+        "skill_potential": 3,
+        "category": "automation",
+        "reasoning": "The transcript provides a clear, step-by-step instruction for using a specific AI tool (Minus AI) to automate presentation creation. This workflow is concrete enough for an AI agent to follow: access the tool, provide a topic, and trigger generation. While it relies on a specific external tool and doesn't detail advanced prompting, it's a distinct, actionable process.",
+        "keywords": [
+          "Minus AI",
+          "presentation generation",
+          "slide deck",
+          "automation",
+          "content creation",
+          "AI tools"
+        ]
+      }
     }
   },
   "saved_skills": {
