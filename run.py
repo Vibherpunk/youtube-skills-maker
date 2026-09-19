@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.state import State
-from src.firestore_source import fetch_curated_videos
+from src.feed_source import fetch_user_feed_videos
 from src.transcribe import get_transcript, is_ip_blocked, YouTubeBlockedError
 from src.evaluator import evaluate_transcript
 from src.cluster import cluster_videos
@@ -52,7 +52,7 @@ def main():
         print("[Pipeline] Error: GEMINI_API_KEY environment variable is not set. Please set it in .env.")
         sys.exit(1)
         
-    repo_slug = config.get("github", {}).get("repo", "adamrmatar/ai-skills")
+    repo_slug = config.get("github", {}).get("repo", "Vibherpunk/ai-skills")
     local_repo_path = config.get("github", {}).get("local_repo_path", "data/ai-skills")
     
     if args.dry_run:
@@ -65,11 +65,17 @@ def main():
         except Exception as e:
             print(f"[Pipeline] Warning: Target repository initialization failed: {e}")
             
-    # 1. Fetch curated videos from Firestore
-    print("[Pipeline] Fetching videos from 25experts Firestore...")
-    all_videos = fetch_curated_videos(
-        project_id=config["firestore"]["project_id"],
-        collection=config["firestore"]["collection"]
+    # 1. Fetch videos from user's YouTube feed
+    print("[Pipeline] Ingesting videos from personal YouTube feed...")
+    feed_cfg = config.get("youtube_feed", {})
+    all_videos = fetch_user_feed_videos(
+        browser=feed_cfg.get("browser", "chrome:Default"),
+        feeds=feed_cfg.get("feeds", ["https://www.youtube.com/"]),
+        limit_per_feed=feed_cfg.get("limit_per_feed", 25),
+        min_duration_seconds=feed_cfg.get("min_duration_seconds", 180),
+        cookies_fallback=feed_cfg.get("cookies_fallback", "cookies.txt"),
+        prioritize_ai_tech=feed_cfg.get("prioritize_ai_tech", True),
+        exclude_child_content=feed_cfg.get("exclude_child_content", True),
     )
     
     # Filter for target videos
@@ -82,15 +88,19 @@ def main():
         print(f"[Pipeline] Found {len(new_videos)} new unprocessed videos.")
     
     # Prioritize videos that match skill-focused topics
-    priority_topics = {"prompt-engineering", "rag", "agents", "orchestration", "ai-coding", "automation"}
+    priority_topics = {"prompt-engineering", "rag", "agents", "orchestration", "ai-coding", "automation", "ai-tech"}
     def get_sort_key(video):
         video_topics = set(video.get("topics", []))
-        has_priority = not video_topics.isdisjoint(priority_topics)
+        has_priority = not video_topics.isdisjoint(priority_topics) or video.get("is_ai_tech", False)
         # True (has priority) is 1, False is 0. Sort ascending means 0 (True) first.
         return (0 if has_priority else 1, video.get("publishedAt", ""))
         
     new_videos.sort(key=get_sort_key)
-    print(f"[Pipeline] Prioritized {sum(1 for v in new_videos if not set(v.get('topics', [])).isdisjoint(priority_topics))} priority skill videos.")
+    prioritized_count = sum(
+        1 for v in new_videos 
+        if not set(v.get("topics", [])).isdisjoint(priority_topics) or v.get("is_ai_tech", False)
+    )
+    print(f"[Pipeline] Prioritized {prioritized_count} priority skill videos.")
 
     # Limit new videos to prevent rate limiting
     new_videos = new_videos[:args.limit]
@@ -204,7 +214,7 @@ def main():
             
         print(f"[Pipeline] Action for topic '{topic_slug}': {action.upper()}")
         
-        # 6. Synthesis using Gemini
+        # 6. Synthesis using Gemini / Custom API (supports 1-to-N decomposition)
         synthesized_data = synthesize_skill(
             topic_slug, 
             videos_in_cluster, 
@@ -216,30 +226,47 @@ def main():
             print(f"[Pipeline] Failed to synthesize skill for '{topic_slug}'.")
             continue
             
-        # 7. Package as Universal Skill & Platform formats
-        build_universal_skill(
-            synthesized_data,
-            videos_in_cluster,
-            output_dir=os.path.join(local_repo_path, "skills"),
-            enabled_adapters=config.get("adapters", {}).get("enabled", [])
-        )
-        
-        # Record synthesized skill in state
-        video_ids = [v["videoId"] for v in videos_in_cluster]
-        state.record_synthesized_skill(topic_slug, video_ids, {
-            "category": main_category,
-            "videos_count": len(videos_in_cluster)
-        })
-        skills_created_or_updated = True
+        skills_to_process = synthesized_data if isinstance(synthesized_data, list) else [synthesized_data]
+        print(f"[Pipeline] Processing {len(skills_to_process)} decomposed/synthesized skill(s) for cluster '{cluster_name}'...")
+
+        for skill in skills_to_process:
+            skill_name = skill.get("name", topic_slug)
+            skill_keywords = skill.get("keywords", keywords)
+
+            # Deduplication check per atomic skill
+            dedup_res = check_deduplication(skill_name, skill_keywords, local_repo_path)
+            action = dedup_res["action"]
+
+            if action == "skip":
+                print(f"[Pipeline] Deduplication matched: Skipping skill synthesis for '{skill_name}'.")
+                continue
+
+            print(f"[Pipeline] Action for skill '{skill_name}': {action.upper()}")
+
+            # 7. Package as Universal Skill & Platform formats
+            build_universal_skill(
+                skill,
+                videos_in_cluster,
+                output_dir=os.path.join(local_repo_path, "skills"),
+                enabled_adapters=config.get("adapters", {}).get("enabled", [])
+            )
+
+            # Record synthesized skill in state
+            video_ids = [v["videoId"] for v in videos_in_cluster]
+            state.record_synthesized_skill(skill_name, video_ids, {
+                "category": skill.get("category", main_category),
+                "videos_count": len(videos_in_cluster)
+            })
+            skills_created_or_updated = True
 
     # 8. Push to GitHub if changes occurred
     if skills_created_or_updated and not args.no_push:
         print("\n[Pipeline] Publishing new skills to GitHub (ai-skills)...")
         publish_skills_to_github(repo_slug, local_repo_path)
-        print("\n[Pipeline] Publishing to TDH-Labs/i-know-kung-fu (vercel-skills format)...")
+        print("\n[Pipeline] Publishing to Vibherpunk/i-know-kung-fu (vercel-skills format)...")
         publish_to_ikf(
             src_skills_path=os.path.join(local_repo_path, "skills"),
-            ikf_repo_slug="TDH-Labs/i-know-kung-fu",
+            ikf_repo_slug="Vibherpunk/i-know-kung-fu",
             ikf_local_path="data/i-know-kung-fu",
         )
     elif not skills_created_or_updated:

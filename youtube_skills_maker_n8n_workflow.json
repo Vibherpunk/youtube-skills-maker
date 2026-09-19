@@ -1,0 +1,414 @@
+{
+  "name": "YouTube Feed Upskilling Engine: Autonomous Skill Harvester",
+  "nodes": [
+    {
+      "id": "schedule-trigger-daily",
+      "name": "Schedule: Daily Autonomous Run",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        100,
+        200
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24,
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "webhook-anton-trigger",
+      "name": "Webhook: On-Demand Anton Upskill Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        100,
+        400
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "upskill-feed",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "upskill-feed-webhook-id"
+    },
+    {
+      "id": "cmd-fetch-feed",
+      "name": "1. Extract Live YouTube Feed (yt-dlp)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        380,
+        300
+      ],
+      "parameters": {
+        "command": "yt-dlp --cookies-from-browser chrome:Default --flat-playlist --playlist-end 60 -J \"https://www.youtube.com/\""
+      }
+    },
+    {
+      "id": "code-filter-feed",
+      "name": "2. Filter Child Content, Shorts & Music Mixes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const rawOutput = $input.first().json.stdout || '{}';\nlet data = {};\ntry {\n  data = JSON.parse(rawOutput);\n} catch (e) {\n  throw new Error('Failed to parse yt-dlp JSON: ' + e.message);\n}\n\nconst entries = data.entries || [];\nconst CHILD_REGEX = /\\b(kids?|children|child|toddlers?|babies|baby|nursery|rhymes?|lullab(y|ies)|cocomelon|peppa|paw\\s+patrol|bluey|blippi|chuchu|sesame\\s+street|cartoons?\\s+for\\s+kids|toys?\\s+review|preschool|sing-?along|abc\\s+song)\\b/i;\nconst AI_TECH_REGEX = /\\b(ai|artificial intelligence|llm|gpt|claude|gemini|deepseek|agent|rag|prompt|cursor|coding|code|vibe coding|python|developer|robot|automation|copilot|ollama)\\b/i;\n\nconst filtered = [];\nfor (const e of entries) {\n  if (!e || !e.id) continue;\n  const vid = String(e.id);\n  const title = String(e.title || '');\n  const channel = String(e.channel || e.uploader || '');\n  const duration = parseFloat(e.duration) || 0;\n\n  // Filter out music mixes & playlists\n  if (vid.startsWith('RD') || e._type === 'playlist' || title.startsWith('Mix -') || title.startsWith('My Mix')) continue;\n\n  // Filter out shorts (< 180s)\n  if (duration < 180) continue;\n\n  // Filter out child content\n  if (e.is_kids || e.made_for_kids || CHILD_REGEX.test(title) || CHILD_REGEX.test(channel)) continue;\n\n  const isAiTech = AI_TECH_REGEX.test(title + ' ' + channel);\n  filtered.push({\n    videoId: vid,\n    title: title,\n    channelName: channel,\n    duration: duration,\n    link: 'https://www.youtube.com/watch?v=' + vid,\n    is_ai_tech: isAiTech\n  });\n}\n\n// Prioritize AI/tech content\nfiltered.sort((a, b) => (b.is_ai_tech ? 1 : 0) - (a.is_ai_tech ? 1 : 0));\n\n// Take top 5 candidates per run to conserve LLM budget\nconst candidates = filtered.slice(0, 5);\nreturn candidates.map(c => ({ json: c }));"
+      }
+    },
+    {
+      "id": "split-candidates",
+      "name": "3. Loop Over Video Candidates",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "cmd-fetch-transcript",
+      "name": "4. Extract Video Transcript",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1140,
+        300
+      ],
+      "parameters": {
+        "command": "python3 -c \"import sys, json; from pathlib import Path; sys.path.insert(0, '/Users/ai/workspace/youtube skills maker'); from src.transcribe import get_transcript; t = get_transcript('{{ $json.videoId }}', data_dir='/Users/ai/workspace/youtube skills maker/data'); print(json.dumps({'transcript': t or ''}))\""
+      }
+    },
+    {
+      "id": "code-check-transcript",
+      "name": "5. Verify Transcript Extracted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const videoInfo = $('3. Loop Over Video Candidates').first().json;\nconst transcriptData = JSON.parse($input.first().json.stdout || '{\"transcript\":\"\"}');\nconst transcript = transcriptData.transcript || '';\n\nreturn [{\n  json: {\n    videoId: videoInfo.videoId,\n    title: videoInfo.title,\n    channelName: videoInfo.channelName,\n    link: videoInfo.link,\n    duration: videoInfo.duration,\n    transcript: transcript,\n    has_transcript: transcript.length > 200\n  }\n}];"
+      }
+    },
+    {
+      "id": "if-has-transcript",
+      "name": "6. Has Valid Transcript?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1620,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-transcript",
+              "leftValue": "={{ $json.has_transcript }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-eval-llm",
+      "name": "7. AI Evaluation: Human Learn -> AI Do",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1880,
+        220
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "=Analyze if this transcript teaches an actionable operational technique, prompt, or code pattern for an AI agent.\\n\\nTitle: {{ $json.title }}\\nChannel: {{ $json.channelName }}\\nTranscript Snippet:\\n{{ $json.transcript.slice(0, 15000) }}\\n\\nRespond strictly with JSON:\\n{\\n  \"is_teachable_skill\": true/false,\\n  \"skill_potential\": 1-5,\\n  \"category\": \"ai-coding|agents|rag|automation|general\",\\n  \"technique_description\": \"...\"\\n}"
+                }
+              ]
+            }
+          ],
+          "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0.1
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "code-parse-eval",
+      "name": "8. Parse AI Evaluation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2140,
+        220
+      ],
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst videoData = $('6. Has Valid Transcript?').first().json;\nlet parsed = { is_teachable_skill: false, skill_potential: 1 };\n\ntry {\n  const text = resp.candidates[0].content.parts[0].text;\n  parsed = JSON.parse(text);\n} catch (e) {\n  parsed.error = e.message;\n}\n\nreturn [{\n  json: {\n    ...videoData,\n    evaluation: parsed,\n    qualifies: parsed.is_teachable_skill && parsed.skill_potential >= 3\n  }\n}];"
+      }
+    },
+    {
+      "id": "if-qualifies",
+      "name": "9. Skill Qualifies (Potential >= 3)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2380,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-qualifies",
+              "leftValue": "={{ $json.qualifies }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cmd-synthesize-package",
+      "name": "10. NotebookLM Deep Synthesis & Skill Package",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        2640,
+        140
+      ],
+      "parameters": {
+        "command": "python3 -c \"import sys; sys.path.insert(0, '/Users/ai/workspace/youtube skills maker'); from run import load_config; from src.synthesize import synthesize_skill; from src.skill_builder import build_universal_skill; import os; key = os.getenv('GEMINI_API_KEY'); v = [{'videoId': '{{ $json.videoId }}', 'title': '''{{ $json.title }}''', 'channelName': '{{ $json.channelName }}', 'link': '{{ $json.link }}'}]; res = synthesize_skill('feed-skill-{{ $json.videoId }}', v, key); build_universal_skill(res, v, output_dir='/Users/ai/workspace/youtube skills maker/data/ai-skills/skills', enabled_adapters=['antigravity']); print('SUCCESS')\""
+      }
+    },
+    {
+      "id": "code-notify-staged",
+      "name": "11. Format AIA Advisory Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2900,
+        140
+      ],
+      "parameters": {
+        "jsCode": "const item = $('9. Skill Qualifies (Potential >= 3)?').first().json;\nreturn [{\n  json: {\n    status: 'staged',\n    advisory: `[AIA-NEW-SKILL] Autonomous Harvester captured candidate: '${item.title}' from channel '${item.channelName}'. Potential: ${item.evaluation.skill_potential}/5. Staged in local vault for review.`,\n    videoId: item.videoId,\n    title: item.title\n  }\n}];"
+      }
+    }
+  ],
+  "connections": {
+    "Schedule: Daily Autonomous Run": {
+      "main": [
+        [
+          {
+            "node": "1. Extract Live YouTube Feed (yt-dlp)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: On-Demand Anton Upskill Request": {
+      "main": [
+        [
+          {
+            "node": "1. Extract Live YouTube Feed (yt-dlp)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Extract Live YouTube Feed (yt-dlp)": {
+      "main": [
+        [
+          {
+            "node": "2. Filter Child Content, Shorts & Music Mixes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Filter Child Content, Shorts & Music Mixes": {
+      "main": [
+        [
+          {
+            "node": "3. Loop Over Video Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Loop Over Video Candidates": {
+      "main": [
+        [
+          {
+            "node": "4. Extract Video Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Extract Video Transcript": {
+      "main": [
+        [
+          {
+            "node": "5. Verify Transcript Extracted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Verify Transcript Extracted": {
+      "main": [
+        [
+          {
+            "node": "6. Has Valid Transcript?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. Has Valid Transcript?": {
+      "main": [
+        [
+          {
+            "node": "7. AI Evaluation: Human Learn -> AI Do",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "3. Loop Over Video Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7. AI Evaluation: Human Learn -> AI Do": {
+      "main": [
+        [
+          {
+            "node": "8. Parse AI Evaluation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "8. Parse AI Evaluation": {
+      "main": [
+        [
+          {
+            "node": "9. Skill Qualifies (Potential >= 3)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "9. Skill Qualifies (Potential >= 3)?": {
+      "main": [
+        [
+          {
+            "node": "10. NotebookLM Deep Synthesis & Skill Package",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "3. Loop Over Video Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "10. NotebookLM Deep Synthesis & Skill Package": {
+      "main": [
+        [
+          {
+            "node": "11. Format AIA Advisory Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "11. Format AIA Advisory Notification": {
+      "main": [
+        [
+          {
+            "node": "3. Loop Over Video Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

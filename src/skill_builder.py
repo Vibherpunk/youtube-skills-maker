@@ -59,11 +59,26 @@ def build_universal_skill(skill_data, videos, output_dir="output/skills", enable
             
         if not filename:
             continue
-        # Sanitize filename
-        if not filename.endswith(".md"):
+        # Defensively guarantee workflow.json is never written into references/ (belongs solely in workflows/)
+        if filename == "workflow.json":
+            continue
+        # Preserve standard code/data extensions (.json, .yaml, .yml, .sh, .py), otherwise ensure .md
+        if not any(filename.endswith(ext) for ext in [".md", ".json", ".yaml", ".yml", ".sh", ".py"]):
             filename += ".md"
         with open(refs_dir / filename, "w", encoding="utf-8") as f:
             f.write(content)
+
+    # 3.5 Write companion deterministic workflow if present
+    workflow = skill_data.get("workflow")
+    if workflow:
+        workflows_dir = skill_path / "workflows"
+        workflows_dir.mkdir(exist_ok=True)
+        with open(workflows_dir / "workflow.json", "w", encoding="utf-8") as f:
+            if isinstance(workflow, str):
+                f.write(workflow)
+            else:
+                import json
+                json.dump(workflow, f, indent=2)
             
     # 4. Generate sources.md inside references
     sources_content = ["# Video Sources\n", "The following curated videos were synthesized to create this skill:\n"]

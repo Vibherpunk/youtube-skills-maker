@@ -1,6 +1,12 @@
-firestore:
-  project_id: "experts-d7c3d"
-  collection: "curatedVideos"
+youtube_feed:
+  browser: "chrome:Default"
+  cookies_fallback: "cookies.txt"
+  feeds:
+    - "https://www.youtube.com/"
+  limit_per_feed: 25
+  min_duration_seconds: 180
+  prioritize_ai_tech: true
+  exclude_child_content: true
 
 pipeline:
   gemini_model: "gemini-2.5-flash"
@@ -14,7 +20,7 @@ pipeline:
   allow_solo_skills: true
 
 github:
-  repo: "adamrmatar/ai-skills"
+  repo: "Vibherpunk/ai-skills"
   branch: "main"
   skills_path: "skills/"
   commit_prefix: "feat(skills): "

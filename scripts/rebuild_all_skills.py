@@ -109,12 +109,12 @@ def main():
 
     # 3. Publish updates to both GitHub repos
     print("\n[Publisher] Publishing updated skills to GitHub (ai-skills)...")
-    publish_skills_to_github(repo_slug="adamrmatar/ai-skills", local_repo_path=LOCAL_REPO_PATH)
+    publish_skills_to_github(repo_slug="Vibherpunk/ai-skills", local_repo_path=LOCAL_REPO_PATH)
 
-    print("\n[Publisher] Publishing updated skills to TDH-Labs/i-know-kung-fu...")
+    print("\n[Publisher] Publishing updated skills to Vibherpunk/i-know-kung-fu...")
     publish_to_ikf(
         src_skills_path=str(SKILLS_DIR),
-        ikf_repo_slug="TDH-Labs/i-know-kung-fu",
+        ikf_repo_slug="Vibherpunk/i-know-kung-fu",
         ikf_local_path="data/i-know-kung-fu"
     )
 

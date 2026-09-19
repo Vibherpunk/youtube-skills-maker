@@ -83,10 +83,10 @@ def main():
     )
     print("Build successful. Publishing changes...")
 
-    publish_skills_to_github(repo_slug="adamrmatar/ai-skills", local_repo_path=LOCAL_REPO_PATH)
+    publish_skills_to_github(repo_slug="Vibherpunk/ai-skills", local_repo_path=LOCAL_REPO_PATH)
     publish_to_ikf(
         src_skills_path=str(SKILLS_DIR),
-        ikf_repo_slug="TDH-Labs/i-know-kung-fu",
+        ikf_repo_slug="Vibherpunk/i-know-kung-fu",
         ikf_local_path="data/i-know-kung-fu"
     )
     print("Publishing complete!")

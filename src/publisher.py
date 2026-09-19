@@ -146,7 +146,7 @@ def init_or_clone_repo(repo_slug, local_path):
             
     return Repo(local_path)
 
-def publish_skills_to_github(repo_slug="adamrmatar/ai-skills", local_repo_path="data/ai-skills"):
+def publish_skills_to_github(repo_slug="Vibherpunk/ai-skills", local_repo_path="data/ai-skills"):
     """
     Stages, commits, and pushes generated skills in the local_repo_path.
     """
@@ -225,17 +225,17 @@ def publish_skills_to_github(repo_slug="adamrmatar/ai-skills", local_repo_path="
 
 
 # ---------------------------------------------------------------------------
-# Publish to TDH-Labs/i-know-kung-fu (vercel-skills compatible format)
+# Publish to Vibherpunk/i-know-kung-fu (vercel-skills compatible format)
 # ---------------------------------------------------------------------------
 
 def publish_to_ikf(
     src_skills_path: str = "data/ai-skills/skills",
-    ikf_repo_slug: str = "TDH-Labs/i-know-kung-fu",
+    ikf_repo_slug: str = "Vibherpunk/i-know-kung-fu",
     ikf_local_path: str = "data/i-know-kung-fu",
 ) -> bool:
     """
     Convert all skills from the pipeline format to vercel-skills format
-    and push them to TDH-Labs/i-know-kung-fu.
+    and push them to Vibherpunk/i-know-kung-fu.
     """
     src_path = Path(src_skills_path)
     if not src_path.exists():
@@ -282,7 +282,7 @@ def publish_to_ikf(
 
     try:
         repo.remote(name="origin").push()
-        print("[IKF Publisher] ✅ Pushed to TDH-Labs/i-know-kung-fu")
+        print("[IKF Publisher] ✅ Pushed to Vibherpunk/i-know-kung-fu")
         return True
     except Exception as e:
         print(f"[IKF Publisher] Push failed: {e}")
@@ -323,10 +323,10 @@ AI skills distilled from expert video content, installable in any AI coding agen
 
 ```bash
 # Install a specific skill
-npx skills add TDH-Labs/i-know-kung-fu@<skill-name>
+npx skills add Vibherpunk/i-know-kung-fu@<skill-name>
 
 # Browse all available skills  
-npx skills find --owner TDH-Labs
+npx skills find --owner Vibherpunk
 ```
 
 ## Available Skills ({len(skills)} total)
