@@ -61,29 +61,38 @@ def check_youtube_access() -> bool:
 
 
 def count_remaining() -> int:
-    """Return number of videos not yet processed."""
+    """Return number of videos in the personal YouTube feed not yet processed."""
     try:
         result = subprocess.run(
             [sys.executable, "-c", """
 import json, os, yaml
 from dotenv import load_dotenv
 load_dotenv()
-from src.firestore_source import fetch_curated_videos
+from src.feed_source import fetch_user_feed_videos
 from src.state import State
 with open('config.yaml') as f:
-    import yaml; config = yaml.safe_load(f)
-all_videos = fetch_curated_videos(
-    project_id=config['firestore']['project_id'],
-    collection=config['firestore']['collection']
+    config = yaml.safe_load(f)
+feed_cfg = config.get('youtube_feed', {})
+all_videos = fetch_user_feed_videos(
+    browser=feed_cfg.get('browser', 'chrome:Default'),
+    feeds=feed_cfg.get('feeds', ['https://www.youtube.com/']),
+    limit_per_feed=feed_cfg.get('limit_per_feed', 25),
+    min_duration_seconds=feed_cfg.get('min_duration_seconds', 180),
+    cookies_fallback=feed_cfg.get('cookies_fallback', 'cookies.txt'),
+    prioritize_ai_tech=feed_cfg.get('prioritize_ai_tech', True),
+    exclude_child_content=feed_cfg.get('exclude_child_content', True)
 )
 state = State('data/state.json')
 remaining = [v for v in all_videos if not state.is_video_processed(v['videoId'])]
 print(len(remaining))
 """],
-            capture_output=True, text=True, timeout=30
+            capture_output=True, text=True, timeout=90
         )
-        return int(result.stdout.strip())
-    except Exception:
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().splitlines()
+            return int(lines[-1].strip())
+        return -1
+    except Exception as e:
         return -1  # Unknown
 
 

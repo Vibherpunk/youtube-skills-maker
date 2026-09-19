@@ -88,7 +88,7 @@ def _call_compatible_api(system: str, user: str, api_key: str, api_base: str, mo
     }
     # OpenRouter specific helper headers
     if "openrouter.ai" in api_base_clean:
-        headers["HTTP-Referer"] = "https://github.com/TDH-Labs/i-know-kung-fu"
+        headers["HTTP-Referer"] = "https://github.com/Vibherpunk/i-know-kung-fu"
         headers["X-Title"] = "YouTube Skills Maker"
 
     req = urllib.request.Request(
@@ -202,11 +202,30 @@ def _call_local_model(prompt: str, model_name: str) -> dict | None:
 _evaluation_counter = 0
 
 
+# Lazy singletons for System One fast filter
+_gliner_singleton = None
+_jev_singleton = None
+
+
+def get_system_one():
+    """Lazily load GLiNER extractor and Jev decision engine."""
+    global _gliner_singleton, _jev_singleton
+    if _gliner_singleton is None:
+        try:
+            from src.system_one import GlinerExtractor, JevDecisionEngine
+            _gliner_singleton = GlinerExtractor()
+            _jev_singleton = JevDecisionEngine()
+        except Exception as e:
+            print(f"[Evaluator] Warning: System One initialization error: {e}")
+    return _gliner_singleton, _jev_singleton
+
+
 def evaluate_transcript(video_id: str, title: str, transcript_text: str, api_key: str) -> dict | None:
     """
     Evaluate a video transcript to determine if it contains a teachable AI skill.
 
     Priority order:
+      0. System One Fast Filter (GLiNER entity density check + Jev non-autoregressive scoring)
       1. OpenAI-compatible custom API base (e.g. OpenRouter, OpenAI, local gateway)
       2. Gemini (standard fallback)
       3. Local Ollama (direct Ollama REST API)
@@ -217,6 +236,95 @@ def evaluate_transcript(video_id: str, title: str, transcript_text: str, api_key
     if not transcript_text:
         print(f"[Evaluator] [{video_id}] Empty transcript. Skipping.")
         return None
+
+    # --- 0. System One Fast Filter ---
+    extractor, jev = get_system_one()
+    if extractor is not None:
+        try:
+            t0 = time.perf_counter()
+            labels = ["software_tool", "cli_command", "code_block", "architecture_pattern"]
+            sample_text = f"{title}\n{transcript_text[:5000]}"
+            entities = extractor.extract(sample_text, labels, threshold=0.35)
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            print(f"[Evaluator] [{video_id}] System One GLiNER: {len(entities)} technical entities extracted in {elapsed_ms:.1f}ms")
+
+            # Discard immediately if technical entity density is low or non-existent
+            word_count = len(sample_text.split())
+            if len(entities) == 0 or (word_count > 100 and len(entities) < 2):
+                print(f"[Evaluator] [{video_id}] ✗ System One discard: low technical entity density ({len(entities)} entities). Skipping LLMs.")
+                return {
+                    "is_teachable_skill": False,
+                    "technique_description": "",
+                    "skill_potential": 1,
+                    "category": "general",
+                    "reasoning": f"System One Fast Filter: Low technical entity density ({len(entities)} technical entities found via GLiNER).",
+                    "keywords": []
+                }
+
+            # If technical entities exist, evaluate with Jev non-autoregressive decision scoring
+            if jev is not None:
+                state = {
+                    "title": title,
+                    "extracted_entities": [e["text"] for e in entities[:15]],
+                    "text_sample": transcript_text[:1500]
+                }
+                questions = {
+                    "is_actionable_skill": {
+                        "type": "choice",
+                        "instructions": "Determine if this content demonstrates an actionable, reproducible engineering or operational workflow for AI agents.",
+                        "criteria": {
+                            "actionable": "Demonstrates specific code, tool configurations, operational heuristics, or reproducible workflows.",
+                            "not_actionable": "High-level opinion, news commentary, fluff, or non-technical chatter."
+                        }
+                    },
+                    "target_domain": {
+                        "type": "choice",
+                        "instructions": "Classify the primary operational domain.",
+                        "criteria": {
+                            "ai_agent_engineering": "Agent frameworks, tool calling, local LLMs, prompts, or orchestration.",
+                            "ai_coding": "Coding tools, IDE plugins, refactoring, code patterns.",
+                            "devops_infra": "Docker, Kubernetes, VPS, CI/CD, networking.",
+                            "general_other": "General commentary or other topics."
+                        }
+                    }
+                }
+                jev_res = jev.decide(state, questions)
+                if not jev_res.get("error") and "answers" in jev_res:
+                    answers = jev_res.get("answers", {})
+                    choice = answers.get("is_actionable_skill", {}).get("choice")
+                    confidence = float(answers.get("is_actionable_skill", {}).get("confidence", 0.0))
+                    domain = answers.get("target_domain", {}).get("choice", "general_other")
+
+                    # Non-autoregressive decision threshold: P >= 0.80
+                    if choice == "actionable" and confidence >= 0.80:
+                        extracted_tools = [e["text"] for e in entities if e["label"] in ("software_tool", "cli_command", "code_block")]
+                        tools_str = ", ".join(extracted_tools[:4]) if extracted_tools else "technical workflow"
+                        cat = "ai-coding" if domain == "ai_coding" else ("agents" if domain == "ai_agent_engineering" else domain.replace("_", "-"))
+                        print(f"[Evaluator] [{video_id}] ✓ System One non-autoregressive decision (P={confidence:.2f}): {cat}")
+                        return {
+                            "is_teachable_skill": True,
+                            "technique_description": f"Actionable {cat} workflow utilizing {tools_str}",
+                            "skill_potential": 5 if confidence >= 0.90 else 4,
+                            "category": cat,
+                            "reasoning": f"System One Non-Autoregressive Decision (P={confidence:.2f}): {domain}",
+                            "keywords": list(dict.fromkeys([e["text"] for e in entities[:8]]))
+                        }
+                    elif choice == "not_actionable" and confidence >= 0.80:
+                        print(f"[Evaluator] [{video_id}] ✗ System One non-autoregressive rejection (P={confidence:.2f})")
+                        return {
+                            "is_teachable_skill": False,
+                            "technique_description": "",
+                            "skill_potential": 1,
+                            "category": domain.replace("_", "-"),
+                            "reasoning": f"System One Non-Autoregressive Decision (P={confidence:.2f}): classified as not actionable.",
+                            "keywords": []
+                        }
+                    else:
+                        print(f"[Evaluator] [{video_id}] System One confidence is ambiguous (P={confidence:.2f} < 0.80). Falling back to LLM...")
+                else:
+                    print(f"[Evaluator] [{video_id}] System One Jev decision unavailable or returned error. Falling back to LLM...")
+        except Exception as e:
+            print(f"[Evaluator] [{video_id}] System One fast filter error ({e}). Falling back to LLM...")
 
     system = "You are an expert AI agent curriculum engineer. Evaluate transcripts to extract structured AI agent skills. Always respond with valid JSON."
 
