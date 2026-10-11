@@ -227,7 +227,7 @@ class TestTaxonomyClassifier(unittest.TestCase):
         boundary_node = next(n for n in wf["nodes"] if n["name"] == "Agent Skill Boundary: Stripe Refund Evaluator")
         url_param = boundary_node["parameters"]["url"]
         self.assertIn("$env.SYSTEM_ONE_URL", url_param)
-        self.assertIn("http://127.0.0.1:8000", url_param)
+        self.assertIn("http://127.0.0.1:8150", url_param)
 
     def test_build_universal_skill_hybrid_packaging_defensive_duplication_check(self):
         """Ensures workflows/workflow.json is the single source of truth and defensively skips any workflow.json in references."""

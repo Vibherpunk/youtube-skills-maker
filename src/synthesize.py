@@ -266,7 +266,7 @@ def generate_companion_workflow(skill_name: str, description: str, deterministic
                 "position": [680, 300],
                 "parameters": {
                     "method": "POST",
-                    "url": "={{ ($env.SYSTEM_ONE_URL || 'http://127.0.0.1:8000') + '/v1/decide' }}",
+                    "url": "={{ ($env.SYSTEM_ONE_URL || 'http://127.0.0.1:8150') + '/v1/decide' }}",
                     "sendBody": True,
                     "bodyParameters": {
                         "parameters": [
