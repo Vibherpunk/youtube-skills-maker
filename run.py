@@ -296,5 +296,17 @@ def main():
 
     print("\n[Pipeline] Pipeline execution complete.")
 
+    # Transcripts are only useful while a run is in flight — once skills are
+    # written nothing reads them again. Prune so the cache can't grow unbounded.
+    try:
+        from src.transcribe import prune_transcript_cache
+        prune_transcript_cache(
+            data_dir=config.get("pipeline", {}).get("data_dir", "data"),
+            keep_last=config.get("pipeline", {}).get("transcript_cache_keep_last", 0),
+            max_bytes=config.get("pipeline", {}).get("transcript_cache_max_mb", 0) * 1024 * 1024 or None,
+        )
+    except Exception as exc:  # noqa: BLE001 - cleanup must never fail a run
+        print(f"[Pipeline] Transcript cache prune skipped: {exc}")
+
 if __name__ == "__main__":
     main()

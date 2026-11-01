@@ -26,6 +26,10 @@ pipeline:
   gemini_model: "gemini-2.5-flash"
   embedding_model: "gemini-embedding-2"
   transcript_language: "en"
+  # Transcript cache is only needed within a run; prune it at the end so it
+  # cannot grow unbounded. keep_last: 0 deletes all; set an N to retain recent.
+  transcript_cache_keep_last: 0
+  transcript_cache_max_mb: 0
   # Threshold for clustering similarity (cosine similarity)
   clustering_threshold: 0.75
   # Minimum number of videos in a cluster before triggering synthesis (unless solo_allowed is true)

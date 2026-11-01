@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 import random
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -28,11 +29,35 @@ PROBE_WAIT_MINUTES_MAX = 120       # Cap backoff at 2 hours
 PROBE_WAIT_MULTIPLIER = 1.5        # Exponential backoff multiplier
 INTER_BATCH_DELAY_SECONDS = 60     # Cooldown between successful batches
 
+# Bounded run log. Redirecting stdout to a file by hand produced a 75 MB
+# loop.out and 13 MB loop.err before anyone noticed; loop.py keeps its own
+# size-capped log instead so a long unattended run cannot fill the disk.
+LOG_PATH = Path(__file__).resolve().parent / "data" / "loop.log"
+LOG_MAX_BYTES = 5 * 1024 * 1024    # rotate at 5 MB, keep one previous
+
+
+def _rotate_log() -> None:
+    try:
+        if LOG_PATH.exists() and LOG_PATH.stat().st_size > LOG_MAX_BYTES:
+            backup = LOG_PATH.with_suffix(".log.1")
+            backup.unlink(missing_ok=True)
+            LOG_PATH.rename(backup)
+    except OSError:
+        pass
+
 
 def log(msg):
     from datetime import datetime
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[Loop {ts}] {msg}", flush=True)
+    line = f"[Loop {ts}] {msg}"
+    print(line, flush=True)
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _rotate_log()
+        with open(LOG_PATH, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError:
+        pass
 
 
 def check_youtube_access() -> bool:

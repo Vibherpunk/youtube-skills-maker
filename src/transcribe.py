@@ -123,6 +123,58 @@ def extract_via_gemini(video_id, api_key):
     return None
 
 
+def prune_transcript_cache(data_dir="data", keep_last: int = 0, max_bytes: int | None = None) -> int:
+    """
+    Delete cached transcript JSONs.
+
+    The cache only exists to avoid re-fetching a transcript within a run; once a
+    skill has been synthesised nothing reads it again. Left alone it grows
+    unbounded (41 MB and climbing on the first batch alone).
+
+    keep_last: retain only the N most recently modified files (0 = delete all).
+    max_bytes: if set, cap the directory at this size, deleting oldest first.
+    Returns the number of files deleted.
+    """
+    cache_dir = Path(data_dir) / "transcripts"
+    if not cache_dir.is_dir():
+        return 0
+
+    files = sorted(
+        (p for p in cache_dir.glob("*.json") if p.is_file()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+    doomed: list[Path] = []
+    if keep_last is None or keep_last <= 0:
+        # Default: nothing is worth keeping once a run finishes.
+        doomed.extend(files)
+        files = []
+    elif keep_last > 0:
+        doomed.extend(files[keep_last:])
+        files = files[:keep_last]
+
+    if max_bytes is not None:
+        total = sum(p.stat().st_size for p in files)
+        for p in reversed(files):  # oldest first
+            if total <= max_bytes:
+                break
+            total -= p.stat().st_size
+            doomed.append(p)
+
+    deleted = 0
+    for p in doomed:
+        try:
+            p.unlink()
+            deleted += 1
+        except OSError:
+            pass
+
+    if deleted:
+        print(f"[TranscriptCache] Pruned {deleted} cached transcript(s).")
+    return deleted
+
+
 def get_transcript(video_id, data_dir="data", gemini_api_key=None):
     """
     Tries to retrieve the transcript for a video using:
