@@ -8,6 +8,20 @@ youtube_feed:
   prioritize_ai_tech: true
   exclude_child_content: true
 
+# Discovery source. "hackertube" scans Hacker News-recommended YouTube videos
+# (the corpus behind hackertube.org, which serves no robots-permitted listing).
+# Set source: "youtube_feed" to use the personal feed above instead.
+hackertube:
+  source: "hackertube"
+  min_points: 10
+  limit: 25
+  max_pages: 6
+  min_duration_seconds: 180
+  # Candidates below this skill-potential score are dropped. 4.0 ≈ AI/tech
+  # topic or a procedure-shaped title, not just a popular video.
+  min_skill_score: 4.0
+  exclude_child_content: true
+
 pipeline:
   gemini_model: "gemini-2.5-flash"
   embedding_model: "gemini-embedding-2"
@@ -24,6 +38,12 @@ github:
   branch: "main"
   skills_path: "skills/"
   commit_prefix: "feat(skills): "
+
+# Second output: converted vercel-format skills for Vibherpunk/i-know-kung-fu.
+ikf:
+  repo: "Vibherpunk/i-know-kung-fu"
+  local_path: "data/i-know-kung-fu"
+  enabled: true
 
 adapters:
   enabled:

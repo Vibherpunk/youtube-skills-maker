@@ -12,7 +12,25 @@ An enterprise-grade, autonomous knowledge synthesis pipeline that transforms pra
 
 ## 🚀 Key Architectural Capabilities
 
-### 1. Dynamic Personal Feed & Subscription Ingestion (`src/feed_source.py`)
+### 1. HackerTube Ingestion — Hacker News-recommended videos (`src/hackertube_source.py`)
+
+The default discovery source is now **HackerTube** ([hackertube.org](https://hackertube.org/)) — "the YouTube videos that Hacker News keeps telling each other to watch." Set `hackertube.source: "youtube_feed"` in `config.yaml` to use the personal-feed mode described in §1b instead.
+
+**Why it doesn't scrape hackertube.org directly.** hackertube.org is a single-page app: every listing is served from `/api/*`, and its `robots.txt` disallows `/api/` for all agents, with no sitemap and no server-rendered video pages. There is no robots-permitted route into its catalogue. What HackerTube is *built from* is Hacker News, whose search API is public and documented, so the pipeline reproduces the same corpus from the source of truth and stays inside the site's crawl policy. The module checks `robots.txt` at runtime and records the outcome on every run.
+
+**Skill-potential ranking (`skill_score`).** HackerTube ranks by community approval, which surfaces excellent *content* that teaches nothing procedural — a Mars landing, a lawsuit story. A naive "top HN videos" pull gave the pipeline a black-hole photo reveal and a SpaceX livestream. Each candidate is therefore scored on:
+
+| Signal | Effect |
+| :--- | :--- |
+| AI/tech topic match (`infer_topics`) | +3 |
+| Procedure-shaped title (*how to*, *from scratch*, *let's build*, *tutorial*, *deep dive*, *internals*, *reverse-engineered*) | +4 |
+| News / entertainment / vlog shape (*trailer*, *interview*, *lawsuit*, *log cabin*, *unboxing*) | −3 |
+| HN points and comment count | log-damped (≤ ~5) |
+| Duration ≥ 20 min / ≥ 10 min / < 5 min | +2 / +1 / −1 |
+
+Candidates below `min_skill_score` (default 4.0) are dropped. The first ranked run returns Karpathy's *"Let's build GPT: from scratch, in code"* first, which is the intended behaviour.
+
+### 1b. Personal Feed & Subscription Ingestion (`src/feed_source.py`) — optional
 Rather than relying on static or curated database queues, the pipeline connects directly to the operator's active YouTube profile (`chrome:Default`) via `yt-dlp`:
 - **Algorithmic Home Feed Extraction:** Ingests live personalized recommendations (`https://www.youtube.com/`) reflecting active technical interests.
 - **Subscription Feed Scanning:** Continuously monitors tracked engineering channels (`https://www.youtube.com/feed/subscriptions`) for newly released practitioner tutorials.

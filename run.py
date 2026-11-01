@@ -65,18 +65,34 @@ def main():
         except Exception as e:
             print(f"[Pipeline] Warning: Target repository initialization failed: {e}")
             
-    # 1. Fetch videos from user's YouTube feed
-    print("[Pipeline] Ingesting videos from personal YouTube feed...")
+    # 1. Fetch videos from the configured discovery source
     feed_cfg = config.get("youtube_feed", {})
-    all_videos = fetch_user_feed_videos(
-        browser=feed_cfg.get("browser", "chrome:Default"),
-        feeds=feed_cfg.get("feeds", ["https://www.youtube.com/"]),
-        limit_per_feed=feed_cfg.get("limit_per_feed", 25),
-        min_duration_seconds=feed_cfg.get("min_duration_seconds", 180),
-        cookies_fallback=feed_cfg.get("cookies_fallback", "cookies.txt"),
-        prioritize_ai_tech=feed_cfg.get("prioritize_ai_tech", True),
-        exclude_child_content=feed_cfg.get("exclude_child_content", True),
-    )
+    ht_cfg = config.get("hackertube", {})
+    source = (ht_cfg.get("source") or "hackertube").lower()
+
+    if source == "hackertube":
+        print("[Pipeline] Ingesting videos from HackerTube (Hacker News-recommended YouTube)...")
+        from src.hackertube_source import fetch_hackertube_videos
+
+        all_videos = fetch_hackertube_videos(
+            min_points=ht_cfg.get("min_points", 10),
+            limit=ht_cfg.get("limit", 25),
+            min_duration_seconds=ht_cfg.get("min_duration_seconds", 180),
+            max_pages=ht_cfg.get("max_pages", 6),
+            min_skill_score=ht_cfg.get("min_skill_score", 4.0),
+            exclude_child_content=ht_cfg.get("exclude_child_content", True),
+        )
+    else:
+        print("[Pipeline] Ingesting videos from personal YouTube feed...")
+        all_videos = fetch_user_feed_videos(
+            browser=feed_cfg.get("browser", "chrome:Default"),
+            feeds=feed_cfg.get("feeds", ["https://www.youtube.com/"]),
+            limit_per_feed=feed_cfg.get("limit_per_feed", 25),
+            min_duration_seconds=feed_cfg.get("min_duration_seconds", 180),
+            cookies_fallback=feed_cfg.get("cookies_fallback", "cookies.txt"),
+            prioritize_ai_tech=feed_cfg.get("prioritize_ai_tech", True),
+            exclude_child_content=feed_cfg.get("exclude_child_content", True),
+        )
     
     # Filter for target videos
     if args.video_ids:
@@ -89,13 +105,17 @@ def main():
     
     # Prioritize videos that match skill-focused topics
     priority_topics = {"prompt-engineering", "rag", "agents", "orchestration", "ai-coding", "automation", "ai-tech"}
-    def get_sort_key(video):
-        video_topics = set(video.get("topics", []))
-        has_priority = not video_topics.isdisjoint(priority_topics) or video.get("is_ai_tech", False)
-        # True (has priority) is 1, False is 0. Sort ascending means 0 (True) first.
-        return (0 if has_priority else 1, video.get("publishedAt", ""))
-        
-    new_videos.sort(key=get_sort_key)
+
+    def _has_priority(video) -> bool:
+        topics = set(video.get("topics", []))
+        return not topics.isdisjoint(priority_topics) or bool(video.get("is_ai_tech"))
+
+    # Two stable passes: recency descending first, then skill potential.
+    # Sorting on publishedAt alone surfaced the OLDEST matches first, so a
+    # decade-old conference talk outranked a current tutorial. Skill score is
+    # set by the discovery source (0.0 for sources that don't provide one).
+    new_videos.sort(key=lambda v: v.get("publishedAt") or "", reverse=True)
+    new_videos.sort(key=lambda v: (0 if _has_priority(v) else 1, -float(v.get("skill_score") or 0.0)))
     prioritized_count = sum(
         1 for v in new_videos 
         if not set(v.get("topics", [])).isdisjoint(priority_topics) or v.get("is_ai_tech", False)
